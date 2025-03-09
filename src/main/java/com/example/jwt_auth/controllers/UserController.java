@@ -1,14 +1,12 @@
 package com.example.jwt_auth.controllers;
 
-import com.example.jwt_auth.models.Phone;
 import com.example.jwt_auth.models.User;
-import com.example.jwt_auth.repository.PhoneRepository;
-import com.example.jwt_auth.repository.UserRepository;
+import com.example.jwt_auth.service.UserService;
+import com.example.jwt_auth.service.UserService.PhoneDto;
 import lombok.Data;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -19,7 +17,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @RestController
@@ -27,22 +24,8 @@ import java.util.stream.Collectors;
 @Tag(name = "Users", description = "User management API")
 public class UserController {
 
-    // Email validation regex pattern
-    private static final Pattern EMAIL_PATTERN = 
-        Pattern.compile("^[A-Za-z0-9+_.-]+@(.+)$");
-    
-    // Password validation regex pattern - requires at least one letter, one number, and minimum 8 characters
-    private static final Pattern PASSWORD_PATTERN = 
-        Pattern.compile("^(?=.*[A-Za-z])(?=.*\\d).{8,}$");
-
     @Autowired
-    private UserRepository userRepository;
-    
-    @Autowired
-    private PhoneRepository phoneRepository;
-    
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    private UserService userService;
 
     @Operation(summary = "Get all users", description = "Returns a list of all users", 
                security = { @SecurityRequirement(name = "bearerAuth") })
@@ -55,210 +38,199 @@ public class UserController {
     @GetMapping
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getAllUsers() {
-        List<User> users = userRepository.findAll();
+        List<User> users = userService.getAllUsers();
         List<Map<String, Object>> response = users.stream()
-                .map(this::convertUserToMap)
+                .map(user -> userService.convertUserToMap(user, null))
                 .collect(Collectors.toList());
         
         return ResponseEntity.ok(response);
     }
     
+    @Operation(summary = "Get user by ID", description = "Returns a specific user by ID", 
+               security = { @SecurityRequirement(name = "bearerAuth") })
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User retrieved successfully", 
+                    content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "404", description = "User not found", 
+                    content = @Content(schema = @Schema(implementation = Void.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized", 
+                    content = @Content(schema = @Schema(implementation = Void.class)))
+    })
     @GetMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> getUserById(@PathVariable UUID id) {
-        Optional<User> userOpt = userRepository.findById(id);
+        Optional<User> userOpt = userService.getUserById(id);
         
         if (userOpt.isPresent()) {
-            return ResponseEntity.ok(convertUserToMap(userOpt.get()));
+            return ResponseEntity.ok(userService.convertUserToMap(userOpt.get(), null));
         } else {
             return ResponseEntity.notFound().build();
         }
     }
     
+    @Operation(summary = "Update user", description = "Updates a user completely", 
+               security = { @SecurityRequirement(name = "bearerAuth") })
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User updated successfully", 
+                    content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid update data", 
+                    content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "404", description = "User not found", 
+                    content = @Content(schema = @Schema(implementation = Void.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized", 
+                    content = @Content(schema = @Schema(implementation = Void.class)))
+    })
     @PutMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> updateUser(@PathVariable UUID id, @RequestBody UpdateUserRequest updateRequest) {
-        Optional<User> userOpt = userRepository.findById(id);
-        
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        
-        User user = userOpt.get();
-        
-        // Validate and update username if provided
+        // Validate username if provided
         if (updateRequest.getUsername() != null && !updateRequest.getUsername().trim().isEmpty()) {
-            // Check if the new username is already taken by another user
-            Optional<User> existingUser = userRepository.findByUsername(updateRequest.getUsername());
-            if (existingUser.isPresent() && !existingUser.get().getId().equals(id)) {
+            if (userService.isUsernameTakenByOtherUser(updateRequest.getUsername(), id)) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Username already exists"));
             }
-            user.setUsername(updateRequest.getUsername());
         }
         
-        // Validate and update email if provided
+        // Validate email if provided
         if (updateRequest.getEmail() != null && !updateRequest.getEmail().trim().isEmpty()) {
-            // Validate email format
-            if (!EMAIL_PATTERN.matcher(updateRequest.getEmail()).matches()) {
+            if (!userService.isEmailValid(updateRequest.getEmail())) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Invalid email format"));
             }
             
-            // Check if the new email is already taken by another user
-            boolean emailExists = userRepository.existsByEmail(updateRequest.getEmail());
-            Optional<User> existingUser = userRepository.findByEmail(updateRequest.getEmail());
-            if (existingUser.isPresent() && !existingUser.get().getId().equals(id)) {
+            if (userService.isEmailTakenByOtherUser(updateRequest.getEmail(), id)) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Email is already in use"));
             }
-            
-            user.setEmail(updateRequest.getEmail());
         }
         
-        // Validate and update password if provided
+        // Validate password if provided
         if (updateRequest.getPassword() != null && !updateRequest.getPassword().trim().isEmpty()) {
-            // Validate password format
-            if (!PASSWORD_PATTERN.matcher(updateRequest.getPassword()).matches()) {
+            if (!userService.isPasswordValid(updateRequest.getPassword())) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 8 characters long and contain at least one letter and one number"));
             }
-            
-            user.setPassword(passwordEncoder.encode(updateRequest.getPassword()));
         }
         
-        // Update active status if provided
-        if (updateRequest.getActive() != null) {
-            user.setActive(updateRequest.getActive());
-        }
-        
-        // Update phones if provided
+        // Convert phone requests to DTOs
+        List<PhoneDto> phoneDtos = null;
         if (updateRequest.getPhones() != null) {
-            // Remove existing phones
-            user.getPhones().clear();
-            
-            // Add new phones
-            for (PhoneRequest phoneRequest : updateRequest.getPhones()) {
-                Phone phone = new Phone(
-                        phoneRequest.getNumber(),
-                        phoneRequest.getCityCode(),
-                        phoneRequest.getCountryCode()
-                );
-                user.addPhone(phone);
-            }
+            phoneDtos = updateRequest.getPhones().stream()
+                .map(p -> new PhoneDto(p.getNumber(), p.getCityCode(), p.getCountryCode()))
+                .collect(Collectors.toList());
         }
         
-        // Save the updated user
-        user = userRepository.save(user);
+        // Update the user
+        Optional<User> updatedUserOpt = userService.updateUser(
+                id,
+                updateRequest.getUsername(),
+                updateRequest.getEmail(),
+                updateRequest.getPassword(),
+                updateRequest.getActive(),
+                phoneDtos
+        );
         
-        return ResponseEntity.ok(convertUserToMap(user));
+        if (updatedUserOpt.isPresent()) {
+            return ResponseEntity.ok(userService.convertUserToMap(updatedUserOpt.get(), null));
+        } else {
+            return ResponseEntity.notFound().build();
+        }
     }
     
+    @Operation(summary = "Partially update user", description = "Updates specific fields of a user", 
+               security = { @SecurityRequirement(name = "bearerAuth") })
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User updated successfully", 
+                    content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid update data", 
+                    content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "404", description = "User not found", 
+                    content = @Content(schema = @Schema(implementation = Void.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized", 
+                    content = @Content(schema = @Schema(implementation = Void.class)))
+    })
     @PatchMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> partialUpdateUser(@PathVariable UUID id, @RequestBody Map<String, Object> updates) {
-        Optional<User> userOpt = userRepository.findById(id);
+        Optional<User> userOpt = userService.getUserById(id);
         
         if (userOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         
-        User user = userOpt.get();
+        String username = null;
+        String email = null;
+        String password = null;
+        Boolean active = null;
         
         // Handle username update
         if (updates.containsKey("username")) {
-            String username = (String) updates.get("username");
+            username = (String) updates.get("username");
             if (username != null && !username.trim().isEmpty()) {
-                // Check if the new username is already taken by another user
-                Optional<User> existingUser = userRepository.findByUsername(username);
-                if (existingUser.isPresent() && !existingUser.get().getId().equals(id)) {
+                if (userService.isUsernameTakenByOtherUser(username, id)) {
                     return ResponseEntity.badRequest().body(Map.of("error", "Username already exists"));
                 }
-                user.setUsername(username);
             }
         }
         
         // Handle email update
         if (updates.containsKey("email")) {
-            String email = (String) updates.get("email");
+            email = (String) updates.get("email");
             if (email != null && !email.trim().isEmpty()) {
-                // Validate email format
-                if (!EMAIL_PATTERN.matcher(email).matches()) {
+                if (!userService.isEmailValid(email)) {
                     return ResponseEntity.badRequest().body(Map.of("error", "Invalid email format"));
                 }
                 
-                // Check if the new email is already taken by another user
-                Optional<User> existingUser = userRepository.findByEmail(email);
-                if (existingUser.isPresent() && !existingUser.get().getId().equals(id)) {
+                if (userService.isEmailTakenByOtherUser(email, id)) {
                     return ResponseEntity.badRequest().body(Map.of("error", "Email is already in use"));
                 }
-                
-                user.setEmail(email);
             }
         }
         
         // Handle password update
         if (updates.containsKey("password")) {
-            String password = (String) updates.get("password");
+            password = (String) updates.get("password");
             if (password != null && !password.trim().isEmpty()) {
-                // Validate password format
-                if (!PASSWORD_PATTERN.matcher(password).matches()) {
+                if (!userService.isPasswordValid(password)) {
                     return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 8 characters long and contain at least one letter and one number"));
                 }
-                
-                user.setPassword(passwordEncoder.encode(password));
             }
         }
         
         // Handle active status update
         if (updates.containsKey("active")) {
-            Boolean active = (Boolean) updates.get("active");
-            if (active != null) {
-                user.setActive(active);
-            }
+            active = (Boolean) updates.get("active");
         }
         
-        // Handle phones update (more complex, so we'll skip it in PATCH for simplicity)
-        // For phones updates, recommend using the PUT endpoint
+        // Update the user (without changing phones in PATCH)
+        Optional<User> updatedUserOpt = userService.updateUser(
+                id,
+                username,
+                email,
+                password,
+                active,
+                null // Don't update phones in PATCH
+        );
         
-        // Save the updated user
-        user = userRepository.save(user);
-        
-        return ResponseEntity.ok(convertUserToMap(user));
+        return ResponseEntity.ok(userService.convertUserToMap(updatedUserOpt.get(), null));
     }
     
+    @Operation(summary = "Delete user", description = "Deletes a user by ID", 
+               security = { @SecurityRequirement(name = "bearerAuth") })
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User deleted successfully", 
+                    content = @Content(schema = @Schema(implementation = Map.class))),
+        @ApiResponse(responseCode = "404", description = "User not found", 
+                    content = @Content(schema = @Schema(implementation = Void.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized", 
+                    content = @Content(schema = @Schema(implementation = Void.class)))
+    })
     @DeleteMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> deleteUser(@PathVariable UUID id) {
-        if (!userRepository.existsById(id)) {
+        boolean deleted = userService.deleteUser(id);
+        
+        if (deleted) {
+            return ResponseEntity.ok(Map.of("message", "User deleted successfully"));
+        } else {
             return ResponseEntity.notFound().build();
         }
-        
-        userRepository.deleteById(id);
-        
-        return ResponseEntity.ok(Map.of("message", "User deleted successfully"));
-    }
-    
-    private Map<String, Object> convertUserToMap(User user) {
-        Map<String, Object> userMap = new HashMap<>();
-        userMap.put("id", user.getId());
-        userMap.put("username", user.getUsername());
-        userMap.put("email", user.getEmail());
-        userMap.put("role", user.getRole());
-        userMap.put("createdAt", user.getCreatedAt());
-        userMap.put("updatedAt", user.getUpdatedAt());
-        userMap.put("lastLogin", user.getLastLogin());
-        userMap.put("active", user.getActive());
-        
-        // Add phones to the response
-        List<Map<String, String>> phonesList = new ArrayList<>();
-        for (Phone phone : user.getPhones()) {
-            Map<String, String> phoneMap = new HashMap<>();
-            phoneMap.put("id", phone.getId().toString());
-            phoneMap.put("number", phone.getNumber());
-            phoneMap.put("cityCode", phone.getCityCode());
-            phoneMap.put("countryCode", phone.getCountryCode());
-            phonesList.add(phoneMap);
-        }
-        userMap.put("phones", phonesList);
-        
-        return userMap;
     }
     
     @Data

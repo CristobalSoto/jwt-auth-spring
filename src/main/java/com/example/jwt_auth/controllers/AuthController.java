@@ -1,9 +1,9 @@
 package com.example.jwt_auth.controllers;
 
-import com.example.jwt_auth.models.Phone;
 import com.example.jwt_auth.models.User;
-import com.example.jwt_auth.repository.UserRepository;
 import com.example.jwt_auth.security.JwtUtil;
+import com.example.jwt_auth.service.UserService;
+import com.example.jwt_auth.service.UserService.PhoneDto;
 import lombok.Data;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +12,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,25 +23,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/auth")
 @Tag(name = "Authentication", description = "Authentication API")
 public class AuthController {
-
-    // Email validation regex pattern
-    private static final Pattern EMAIL_PATTERN = 
-        Pattern.compile("^[A-Za-z0-9+_.-]+@(.+)$");
-    
-    // Password validation regex pattern - requires at least one letter, one number, and minimum 8 characters
-    private static final Pattern PASSWORD_PATTERN = 
-        Pattern.compile("^(?=.*[A-Za-z])(?=.*\\d).{8,}$");
     
     @Autowired
     private AuthenticationManager authenticationManager;
@@ -54,10 +42,7 @@ public class AuthController {
     private JwtUtil jwtUtil;
 
     @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    private UserService userService;
 
     @Operation(summary = "Login a user", description = "Authenticates a user and returns a JWT token")
     @ApiResponses(value = {
@@ -74,14 +59,13 @@ public class AuthController {
             );
             
             // Update last login time
-            User user = userRepository.findByUsername(authRequest.getUsername()).orElseThrow();
-            user.setLastLogin(LocalDateTime.now());
-            userRepository.save(user);
+            User user = userService.getUserByUsername(authRequest.getUsername()).orElseThrow();
+            user = userService.updateLastLogin(user);
             
             final UserDetails userDetails = (UserDetails) authentication.getPrincipal();
             final String jwt = jwtUtil.generateToken(userDetails);
 
-            return ResponseEntity.ok(createUserResponse(user, jwt));
+            return ResponseEntity.ok(userService.convertUserToMap(user, jwt));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid username or password"));
         }
@@ -97,88 +81,46 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(@RequestBody RegisterRequest registerRequest) {
         // Validate username
-        if (userRepository.findByUsername(registerRequest.getUsername()).isPresent()) {
+        if (userService.getUserByUsername(registerRequest.getUsername()).isPresent()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Username already exists"));
         }
         
-        // Validate email presence
-        if (registerRequest.getEmail() == null || registerRequest.getEmail().trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
-        }
-        
-        // Validate email format using regex
-        if (!EMAIL_PATTERN.matcher(registerRequest.getEmail()).matches()) {
+        // Validate email
+        if (!userService.isEmailValid(registerRequest.getEmail())) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid email format"));
         }
         
         // Check if email is already in use
-        if (userRepository.existsByEmail(registerRequest.getEmail())) {
+        if (userService.isEmailTaken(registerRequest.getEmail())) {
             return ResponseEntity.badRequest().body(Map.of("error", "Email is already in use"));
         }
         
-        // Validate password format (must contain at least one letter, one number, and be at least 8 characters long)
-        if (!PASSWORD_PATTERN.matcher(registerRequest.getPassword()).matches()) {
+        // Validate password
+        if (!userService.isPasswordValid(registerRequest.getPassword())) {
             return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 8 characters long and contain at least one letter and one number"));
         }
 
-        // Create a new user with username, email, and password
-        User user = new User(
-                registerRequest.getUsername(),
-                registerRequest.getEmail(),
-                passwordEncoder.encode(registerRequest.getPassword())
-        );
-        
-        // Add phones if provided
-        if (registerRequest.getPhones() != null && !registerRequest.getPhones().isEmpty()) {
-            for (PhoneRequest phoneRequest : registerRequest.getPhones()) {
-                Phone phone = new Phone(
-                        phoneRequest.getNumber(),
-                        phoneRequest.getCityCode(),
-                        phoneRequest.getCountryCode()
-                );
-                user.addPhone(phone);
-            }
+        // Convert phone requests to DTOs
+        List<PhoneDto> phoneDtos = null;
+        if (registerRequest.getPhones() != null) {
+            phoneDtos = registerRequest.getPhones().stream()
+                .map(p -> new PhoneDto(p.getNumber(), p.getCityCode(), p.getCountryCode()))
+                .collect(Collectors.toList());
         }
         
-        // Save the user to generate the UUID and timestamps
-        user = userRepository.save(user);
-        
-        // Set lastLogin to createdAt for new users
-        user.setLastLogin(user.getCreatedAt());
-        user = userRepository.save(user);
+        // Create the user
+        User user = userService.createUser(
+                registerRequest.getUsername(),
+                registerRequest.getEmail(),
+                registerRequest.getPassword(),
+                phoneDtos
+        );
         
         // Generate token for the newly registered user
         final UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         final String jwt = jwtUtil.generateToken(userDetails);
         
-        return ResponseEntity.ok(createUserResponse(user, jwt));
-    }
-    
-    private Map<String, Object> createUserResponse(User user, String token) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("token", token);
-        response.put("id", user.getId());
-        response.put("username", user.getUsername());
-        response.put("email", user.getEmail());
-        response.put("role", user.getRole());
-        response.put("createdAt", user.getCreatedAt());
-        response.put("updatedAt", user.getUpdatedAt());
-        response.put("lastLogin", user.getLastLogin());
-        response.put("active", user.getActive());
-        
-        // Add phones to the response
-        List<Map<String, String>> phonesList = new ArrayList<>();
-        for (Phone phone : user.getPhones()) {
-            Map<String, String> phoneMap = new HashMap<>();
-            phoneMap.put("id", phone.getId().toString());
-            phoneMap.put("number", phone.getNumber());
-            phoneMap.put("cityCode", phone.getCityCode());
-            phoneMap.put("countryCode", phone.getCountryCode());
-            phonesList.add(phoneMap);
-        }
-        response.put("phones", phonesList);
-        
-        return response;
+        return ResponseEntity.ok(userService.convertUserToMap(user, jwt));
     }
 
     @Data
