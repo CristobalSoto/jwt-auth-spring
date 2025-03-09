@@ -32,7 +32,7 @@ public class Phone {
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
-    @JsonIgnore // Prevent circular reference in JSON
+    @JsonIgnore
     private User user;
     
     public Phone(String number, String cityCode, String countryCode) {
