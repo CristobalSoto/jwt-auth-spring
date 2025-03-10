@@ -2,9 +2,8 @@ package com.example.jwt_auth.controllers;
 
 import com.example.jwt_auth.models.User;
 import com.example.jwt_auth.service.UserService;
-import com.example.jwt_auth.service.UserService.PhoneDto;
+import com.example.jwt_auth.dto.PhoneDto;
 import lombok.Data;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -24,8 +23,11 @@ import java.util.stream.Collectors;
 @Tag(name = "Users", description = "User management API")
 public class UserController {
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
 
     @Operation(summary = "Get all users", description = "Returns a list of all users", 
                security = { @SecurityRequirement(name = "bearerAuth") })
@@ -64,7 +66,8 @@ public class UserController {
         if (userOpt.isPresent()) {
             return ResponseEntity.ok(userService.convertUserToMap(userOpt.get(), null));
         } else {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "Usuario no encontrado"));
         }
     }
     
@@ -229,7 +232,8 @@ public class UserController {
         if (deleted) {
             return ResponseEntity.ok(Map.of("message", "User deleted successfully"));
         } else {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "Usuario no encontrado"));
         }
     }
     

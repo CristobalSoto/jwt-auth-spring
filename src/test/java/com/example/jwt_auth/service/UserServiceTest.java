@@ -3,7 +3,7 @@ package com.example.jwt_auth.service;
 import com.example.jwt_auth.models.Phone;
 import com.example.jwt_auth.models.User;
 import com.example.jwt_auth.repository.UserRepository;
-import com.example.jwt_auth.service.UserService.PhoneDto;
+import com.example.jwt_auth.dto.PhoneDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

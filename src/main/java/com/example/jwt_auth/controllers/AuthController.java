@@ -3,11 +3,12 @@ package com.example.jwt_auth.controllers;
 import com.example.jwt_auth.models.User;
 import com.example.jwt_auth.security.JwtUtil;
 import com.example.jwt_auth.service.UserService;
-import com.example.jwt_auth.service.UserService.PhoneDto;
+import com.example.jwt_auth.dto.PhoneDto;
 import lombok.Data;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -32,17 +33,21 @@ import java.util.stream.Collectors;
 @Tag(name = "Authentication", description = "Authentication API")
 public class AuthController {
     
-    @Autowired
-    private AuthenticationManager authenticationManager;
+    private final AuthenticationManager authenticationManager;
+    private final UserDetailsService userDetailsService;
+    private final JwtUtil jwtUtil;
+    private final UserService userService;
 
-    @Autowired
-    private UserDetailsService userDetailsService;
-
-    @Autowired
-    private JwtUtil jwtUtil;
-
-    @Autowired
-    private UserService userService;
+    public AuthController(
+            AuthenticationManager authenticationManager,
+            UserDetailsService userDetailsService,
+            JwtUtil jwtUtil,
+            UserService userService) {
+        this.authenticationManager = authenticationManager;
+        this.userDetailsService = userDetailsService;
+        this.jwtUtil = jwtUtil;
+        this.userService = userService;
+    }
 
     @Operation(summary = "Login a user", description = "Authenticates a user and returns a JWT token")
     @ApiResponses(value = {

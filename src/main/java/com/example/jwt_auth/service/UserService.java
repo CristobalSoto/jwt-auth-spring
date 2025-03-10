@@ -2,8 +2,8 @@ package com.example.jwt_auth.service;
 
 import com.example.jwt_auth.models.Phone;
 import com.example.jwt_auth.models.User;
+import com.example.jwt_auth.dto.PhoneDto;
 import com.example.jwt_auth.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,11 +23,13 @@ public class UserService {
     private static final Pattern PASSWORD_PATTERN = 
         Pattern.compile("^(?=.*[A-Za-z])(?=.*\\d).{8,}$");
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
     
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
     
     public List<User> getAllUsers() {
         return userRepository.findAll();
@@ -186,44 +188,5 @@ public class UserService {
         userMap.put("phones", phonesList);
         
         return userMap;
-    }
-    
-    // DTO for phone data
-    public static class PhoneDto {
-        private String number;
-        private String cityCode;
-        private String countryCode;
-        
-        public PhoneDto() {}
-        
-        public PhoneDto(String number, String cityCode, String countryCode) {
-            this.number = number;
-            this.cityCode = cityCode;
-            this.countryCode = countryCode;
-        }
-        
-        public String getNumber() {
-            return number;
-        }
-        
-        public void setNumber(String number) {
-            this.number = number;
-        }
-        
-        public String getCityCode() {
-            return cityCode;
-        }
-        
-        public void setCityCode(String cityCode) {
-            this.cityCode = cityCode;
-        }
-        
-        public String getCountryCode() {
-            return countryCode;
-        }
-        
-        public void setCountryCode(String countryCode) {
-            this.countryCode = countryCode;
-        }
     }
 } 

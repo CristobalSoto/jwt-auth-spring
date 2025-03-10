@@ -6,7 +6,7 @@ import com.example.jwt_auth.controllers.AuthController.RegisterRequest;
 import com.example.jwt_auth.models.User;
 import com.example.jwt_auth.security.JwtUtil;
 import com.example.jwt_auth.service.UserService;
-import com.example.jwt_auth.service.UserService.PhoneDto;
+import com.example.jwt_auth.dto.PhoneDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
